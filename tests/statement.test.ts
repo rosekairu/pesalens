@@ -64,3 +64,27 @@ describe("balance check", () => {
     expect(balanceGaps(readRows(await extractText(lib, bytes("public/sample-statement.pdf"))))).toBe(0);
   });
 });
+
+describe("other statement layouts", () => {
+  // Headings centred over columns, with empty amount cells: the layout that broke the first real statement.
+  for (const f of ["tests/fixtures/centered.pdf", "tests/fixtures/oneline.pdf"]) {
+    it(`reads ${f}`, async () => {
+      const r = await readStatement(lib, bytes(f));
+      expect(r.fees.byType.send).toBeGreaterThan(0);
+      expect(r.fees.byType.other).toBe(0);
+      expect(r.fuliza?.borrowed).toBeGreaterThan(0);
+      expect(r.people.length).toBeGreaterThan(3);
+      expect(r.balanceGaps).toBe(0);
+      expect(r.diagnostics?.unknown).toHaveLength(0);
+    });
+  }
+});
+
+import { maskDetails } from "../src/lib/statement/diagnostics";
+describe("diagnostics masking", () => {
+  it("removes names and numbers", () => {
+    expect(maskDetails("Customer Transfer to 0712***678 - JOHN KAMAU")).toBe("Customer Transfer to 9999***999 - NAME");
+    expect(maskDetails("Pay Bill Online to 888880 - KPLC PREPAID Acc. 14104415022")).toBe("Pay Bill Online to 999999 - NAME Acc. ACCOUNT");
+    expect(maskDetails("Merchant Payment Fuliza M-Pesa to7623398 - Muturi Shop")).toBe("Merchant Payment Fuliza M-Pesa to9999999 - NAME");
+  });
+});

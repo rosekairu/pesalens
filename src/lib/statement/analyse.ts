@@ -1,6 +1,7 @@
 import { classify } from "./classify";
 import { defaultCategory } from "./categories";
 import type { FeeType, RawRow, Txn } from "./types";
+import type { Diagnostics } from "./diagnostics";
 
 const DAY = 86_400_000;
 
@@ -27,6 +28,7 @@ export type Report = {
   biggestFee: { type: FeeType | "fuliza"; amount: number; count: number } | null;
   /** Share of rows whose balance doesn't follow from the previous row. Above 5%, totals may be off. */
   balanceGaps: number;
+  diagnostics?: Diagnostics;
 };
 
 const median = (xs: number[]) => {

@@ -14,6 +14,9 @@ from reportlab.pdfgen import canvas
 args = sys.argv[1:]
 out = args[0] if args else "sample.pdf"
 NEG = "--negative" in args          # older statements print withdrawals as negatives
+CENTERED = "--centered" in args     # headings centred over their columns
+BLANK = "--blank" in args           # empty amount cells instead of 0.00
+ONELINE = "--oneline-time" in args  # date and time on one line
 seed = int(args[args.index("--seed") + 1]) if "--seed" in args else 7
 rnd = random.Random(seed)
 
@@ -137,8 +140,10 @@ def page_header(first):
             c.drawString(28, y, k); c.drawString(250, y, "{:,.2f}".format(pi)); c.drawString(330, y, "{:,.2f}".format(wd)); y -= 11
         y -= 10; c.setFont("Helvetica-Bold", 8); c.drawString(28, y, "DETAILED STATEMENT"); y -= 14
     c.setFont("Helvetica-Bold", 7.5)
-    for name, x in COLS:
-        if name in RIGHT: c.drawRightString(RIGHT[name], y, name)
+    edges = [x for _, x in COLS] + [W - 20]
+    for i, (name, x) in enumerate(COLS):
+        if CENTERED: c.drawCentredString((edges[i] + (RIGHT.get(name, edges[i + 1]))) / 2 if name not in RIGHT else (edges[i] + RIGHT[name]) / 2, y, name)
+        elif name in RIGHT: c.drawRightString(RIGHT[name], y, name)
         else: c.drawString(x, y, name)
     return y - 13
 
@@ -155,11 +160,12 @@ for r, t, d, pi, wd, b in rows:
     if y - need < 40:
         footer(); c.showPage(); pageno += 1; y = page_header(False); c.setFont("Helvetica", 7.5)
     c.drawString(28, y, r)
-    c.drawString(86, y, t.strftime("%Y-%m-%d")); c.drawString(86, y - 10, t.strftime("%H:%M:%S"))
+    if ONELINE: c.setFont("Helvetica", 6.2); c.drawString(86, y, t.strftime("%Y-%m-%d %H:%M:%S")); c.setFont("Helvetica", 7.5)
+    else: c.drawString(86, y, t.strftime("%Y-%m-%d")); c.drawString(86, y - 10, t.strftime("%H:%M:%S"))
     for i, ln in enumerate(lines): c.drawString(150, y - 10 * i, ln)
     c.drawString(352, y, "COMPLETED")
-    c.drawRightString(462, y, money(pi) if pi else "0.00")
-    c.drawRightString(516, y, money(wd) if wd else "0.00")
+    if pi or not BLANK: c.drawRightString(462, y, money(pi) if pi else "0.00")
+    if wd or not BLANK: c.drawRightString(516, y, money(wd) if wd else "0.00")
     c.drawRightString(572, y, "{:,.2f}".format(b))
     y -= need
 footer(); c.save()

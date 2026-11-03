@@ -1,6 +1,7 @@
 import { extractText, type PdfJs } from "./extract";
 import { balanceGaps, readPeriod, readRows } from "./layout";
 import { analyse, type Report } from "./analyse";
+import { diagnose } from "./diagnostics";
 
 /** Statement bytes in, report out. Nothing leaves the device. */
 export async function readStatement(pdfjs: PdfJs, bytes: Uint8Array, code?: string, onPage?: (done: number, total: number) => void): Promise<Report> {
@@ -8,5 +9,6 @@ export async function readStatement(pdfjs: PdfJs, bytes: Uint8Array, code?: stri
   const rows = readRows(pages);
   const report = analyse(rows, readPeriod(pages));
   report.balanceGaps = balanceGaps(rows);
+  report.diagnostics = diagnose(rows);
   return report;
 }

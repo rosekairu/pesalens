@@ -6,6 +6,7 @@ import { useStatement } from "@/lib/StatementContext";
 import type { Report } from "@/lib/statement/analyse";
 import type { FeeType } from "@/lib/statement/types";
 import { ksh, longDate, maskName, num, ordinal, titleCase } from "@/lib/format";
+import { diagnosticsText } from "@/lib/statement/diagnostics";
 import { Footer, Header } from "./Header";
 import { SampleButton } from "./SampleButton";
 
@@ -107,6 +108,8 @@ function ReportView({ r, sample }: { r: Report; sample: boolean }) {
         </div>
         <People r={r} />
       </section>
+
+      {!sample && <Diagnose r={r} />}
     </main>
   );
 }
@@ -244,5 +247,24 @@ function People({ r }: { r: Report }) {
       )) : <p className="muted">You didn&apos;t send money to anyone in this statement.</p>}
       {top.length > 0 && <p className="small muted" style={{ marginTop: 10 }}>Names are {show ? "shown" : "masked"}. <button className="link-quiet" onClick={() => setShow(!show)}>{show ? "Mask names" : "Show full names"}</button></p>}
     </div>
+  );
+}
+
+function Diagnose({ r }: { r: Report }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (!r.diagnostics) return null;
+  const text = diagnosticsText(r.diagnostics, r.balanceGaps);
+  return (
+    <section className="section diag">
+      <button className="link-quiet" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide what PesaLens read" : "Results look wrong? See what PesaLens read"}</button>
+      {open && (
+        <>
+          <p className="small muted" style={{ marginTop: 12, maxWidth: 680 }}>This shows the shape of each kind of line in your statement, with every name, number and amount removed. If the results look wrong, you can copy it and send it to the developer instead of your statement. Nothing is sent unless you send it.</p>
+          <textarea readOnly value={text} rows={16} aria-label="What PesaLens read, with names, numbers and amounts removed" />
+          <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); } catch { setCopied(false); } }}>{copied ? "Copied" : "Copy"}</button>
+        </>
+      )}
+    </section>
   );
 }

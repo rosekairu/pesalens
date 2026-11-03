@@ -1,7 +1,8 @@
 import { StatementError, type RawRow, type TextBit } from "./types";
 
 type Line = { y: number; bits: TextBit[] };
-type Cols = { time: number; details: number; status: number; nums: { key: "paidIn" | "withdrawn" | "balance"; right: number }[] };
+type NumKey = "paidIn" | "withdrawn" | "balance";
+type Cols = { details: number; nums: { key: NumKey; center: number }[] };
 
 const RECEIPT = /^[A-Z0-9]{8,12}$/;
 const AMOUNT = /^-?[\d,]+\.\d{2}$/;
@@ -43,7 +44,6 @@ function findHeader(lines: Line[]): { index: number; cols: Cols } | null {
     const bits = lines[i].bits;
     const find = (re: RegExp) => bits.find((b) => re.test(b.s));
     const receipt = find(/^receipt/i), time = find(/^completion/i), details = find(/^details/i);
-    const status = find(/^transaction$/i) ?? find(/^status$/i);
     const paid = find(/^paid(in)?$/i), withdrawn = find(/^withdrawn$/i), balance = find(/^balance$/i);
     if (!receipt || !time || !details || !paid || !withdrawn || !balance) continue;
     // "Paid in" is usually two words; its right edge is the end of "in".
@@ -52,13 +52,11 @@ function findHeader(lines: Line[]): { index: number; cols: Cols } | null {
     return {
       index: i,
       cols: {
-        time: time.x - 4,
-        details: details.x - 4,
-        status: (status ?? paidIn).x - 4,
+        details: details.x,
         nums: [
-          { key: "paidIn", right: paidIn.x + paidIn.w },
-          { key: "withdrawn", right: withdrawn.x + withdrawn.w },
-          { key: "balance", right: balance.x + balance.w },
+          { key: "paidIn", center: paidIn.x + paidIn.w / 2 },
+          { key: "withdrawn", center: withdrawn.x + withdrawn.w / 2 },
+          { key: "balance", center: balance.x + balance.w / 2 },
         ],
       },
     };
@@ -88,6 +86,46 @@ export function readPeriod(pages: TextBit[][]): [number, number] | null {
   return null;
 }
 
+const TIME = /^(\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(:\d{2})?)$/;
+const STATUS = /^(COMPLETED|FAILED|CANCELLED|DECLINED|PENDING|REVERSED|SUCCESS(FUL)?)$/i;
+
+/**
+ * Splits one line into its parts by what each word looks like, not only where it sits.
+ * Statements differ in how headings line up with their columns (left-aligned, centred),
+ * so positions are only used where shapes can't decide (which amount column a number is in).
+ */
+export function readLine(line: Line, c: Cols) {
+  const words = line.bits;
+  // Amounts are the run of numbers at the end of the line.
+  let tail = words.length;
+  while (tail > 0 && AMOUNT.test(words[tail - 1].s)) tail--;
+  const amountWords = words.slice(tail);
+  const nums: Partial<Record<NumKey, number>> = {};
+  const value = (w: TextBit) => Number(w.s.replace(/,/g, ""));
+  if (amountWords.length >= 3) {
+    const [a, b, bal] = amountWords.slice(-3);
+    nums.paidIn = value(a); nums.withdrawn = value(b); nums.balance = value(bal);
+  } else {
+    // Empty cells: place each number in the amount column whose heading it sits nearest.
+    for (const w of amountWords) {
+      const mid = w.x + w.w / 2;
+      const nearest = c.nums.reduce((p, q) => (Math.abs(q.center - mid) < Math.abs(p.center - mid) ? q : p));
+      nums[nearest.key] = value(w);
+    }
+  }
+
+  let receipt = "";
+  const time: string[] = [], details: string[] = [], status: string[] = [];
+  words.slice(0, tail).forEach((w, k) => {
+    const s = w.s;
+    if (k === 0 && RECEIPT.test(s) && w.x < c.details) receipt = s;
+    else if (!details.length && TIME.test(s)) time.push(s);
+    else if (STATUS.test(s)) status.push(s);
+    else details.push(s);
+  });
+  return { receipt, time, details, status, nums, amounts: amountWords.length > 0, amountCount: amountWords.length };
+}
+
 /** Turns the pages of a full M-PESA statement into raw table rows (newest first, as printed). */
 export function readRows(pages: TextBit[][]): RawRow[] {
   const all = pages.flat().map((b) => b.s).join(" ");
@@ -110,43 +148,32 @@ export function readRows(pages: TextBit[][]): RawRow[] {
     const c = cols;
     let prevY: number | null = null;
     let open = false;   // whether the current row can still take wrapped lines
+    // Wrapped lines sit about one line-height below; allow a little more than the tightest spacing on the page.
+    const gaps = lines.slice(1).map((l, k) => lines[k].y - l.y).filter((g) => g > 1).sort((a, b) => a - b);
+    const gapLimit = Math.max(16, (gaps[0] ?? 10) * 1.8);
 
     for (let i = header ? header.index + 1 : 0; i < lines.length; i++) {
       const line = lines[i];
-      const parts = { receipt: [] as string[], time: [] as string[], details: [] as string[], status: [] as string[] };
-      const nums: Partial<Record<"paidIn" | "withdrawn" | "balance", number>> = {};
-      for (const b of line.bits) {
-        const s = b.s.trim();
-        if (b.x >= c.status && AMOUNT.test(s)) {
-          const right = b.x + b.w;
-          const nearest = c.nums.reduce((p, q) => (Math.abs(q.right - right) < Math.abs(p.right - right) ? q : p));
-          nums[nearest.key] = Number(s.replace(/,/g, ""));
-        } else if (b.x < c.details && /^(\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(:\d{2})?)$/.test(s)) parts.time.push(s);
-        else if (/^(COMPLETED|FAILED|CANCELLED|DECLINED|PENDING|REVERSED)$/i.test(s) && b.x > c.details) parts.status.push(s);
-        else if (b.x < c.time) parts.receipt.push(s);
-        else if (b.x < c.details) parts.time.push(s);
-        else if (b.x < c.status) parts.details.push(s);
-        else parts.status.push(s);
-      }
-      const receipt = parts.receipt.join("");
-      if (RECEIPT.test(receipt) && (nums.paidIn !== undefined || nums.withdrawn !== undefined)) {
+      const parts = readLine(line, c);
+      if (parts.receipt && parts.amounts) {
         finish();
         timeText = parts.time.join(" ");
         rows.push({
-          receipt,
+          receipt: parts.receipt,
           t: NaN,
           details: parts.details.join(" "),
           status: parts.status.join(" ").toUpperCase(),
-          paidIn: Math.abs(nums.paidIn ?? 0),
-          withdrawn: Math.abs(nums.withdrawn ?? 0),
-          balance: nums.balance ?? null,
+          paidIn: Math.abs(parts.nums.paidIn ?? 0),
+          withdrawn: Math.abs(parts.nums.withdrawn ?? 0),
+          balance: parts.nums.balance ?? null,
+          cells: parts.amountCount,
         });
         open = true;
         prevY = line.y;
         continue;
       }
       // A wrapped line: no receipt, no amounts, close below the row it belongs to.
-      const wrapped = open && prevY !== null && prevY - line.y < 16 && !parts.receipt.length && Object.keys(nums).length === 0 && !parts.status.length;
+      const wrapped = open && prevY !== null && prevY - line.y < gapLimit && !parts.receipt && !parts.amounts && !parts.status.length && (parts.details.length > 0 || parts.time.length > 0);
       if (wrapped) {
         const r = rows[rows.length - 1];
         if (parts.details.length) r.details += " " + parts.details.join(" ");
@@ -171,14 +198,18 @@ export function readRows(pages: TextBit[][]): RawRow[] {
  * rows were missed or misread, so the results would be wrong. Rows are newest first.
  */
 export function balanceGaps(rows: RawRow[]): number {
-  let checked = 0, gaps = 0;
-  for (let i = 0; i < rows.length - 1; i++) {
-    const r = rows[i], older = rows[i + 1];
-    if (r.balance === null || older.balance === null) continue;
-    checked++;
-    if (Math.abs(older.balance + r.paidIn - r.withdrawn - r.balance) > 0.5) gaps++;
-  }
-  return checked ? gaps / checked : 0;
+  // Statements are usually newest first, but check both orders and keep the better fit.
+  const gapRate = (list: RawRow[]) => {
+    let checked = 0, gaps = 0;
+    for (let i = 0; i < list.length - 1; i++) {
+      const r = list[i], older = list[i + 1];
+      if (r.balance === null || older.balance === null) continue;
+      checked++;
+      if (Math.abs(older.balance + r.paidIn - r.withdrawn - r.balance) > 0.5) gaps++;
+    }
+    return checked ? gaps / checked : 0;
+  };
+  return Math.min(gapRate(rows), gapRate([...rows].reverse()));
 }
 
 export { parseAmount };

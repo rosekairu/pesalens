@@ -11,6 +11,8 @@ export type RawRow = {
   paidIn: number;
   withdrawn: number;
   balance: number | null;
+  /** How many amount cells the line had (for the diagnostics panel). */
+  cells?: number;
 };
 
 export type Kind =
