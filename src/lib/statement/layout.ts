@@ -174,6 +174,7 @@ export function readRows(pages: TextBit[][]): RawRow[] {
       }
       // A wrapped line: no receipt, no amounts, close below the row it belongs to.
       const wrapped = open && prevY !== null && prevY - line.y < gapLimit && !parts.receipt && !parts.amounts && !parts.status.length && (parts.details.length > 0 || parts.time.length > 0);
+      if (wrapped && /^Disclaimer/i.test(parts.details[0] ?? "")) { open = false; continue; }
       if (wrapped) {
         const r = rows[rows.length - 1];
         if (parts.details.length) r.details += " " + parts.details.join(" ");
@@ -187,7 +188,7 @@ export function readRows(pages: TextBit[][]): RawRow[] {
   finish();
 
   if (!cols) throw new StatementError("unsupported-layout", "No detailed table header found");
-  for (const r of rows) r.details = r.details.replace(/\s+/g, " ").trim();
+  for (const r of rows) r.details = r.details.replace(/\s*Disclaimer:.*$/i, "").replace(/\s+/g, " ").trim();
   const good = rows.filter((r) => !Number.isNaN(r.t));
   if (good.length === 0 || good.length < rows.length * 0.9) throw new StatementError("unsupported-layout", "Could not read dates");
   return good;
@@ -197,6 +198,8 @@ export function readRows(pages: TextBit[][]): RawRow[] {
  * Share of rows whose balance doesn't follow from the row before it. A high share means
  * rows were missed or misread, so the results would be wrong. Rows are newest first.
  */
+const FULIZA_LINE = /OverDraft|OD\s*Loan|Fuliza/i;
+
 export function balanceGaps(rows: RawRow[]): number {
   // Statements are usually newest first, but check both orders and keep the better fit.
   const gapRate = (list: RawRow[]) => {
@@ -204,6 +207,8 @@ export function balanceGaps(rows: RawRow[]): number {
     for (let i = 0; i < list.length - 1; i++) {
       const r = list[i], older = list[i + 1];
       if (r.balance === null || older.balance === null) continue;
+      // Statements print the running balance differently on Fuliza lines, so they can't be checked this way.
+      if (FULIZA_LINE.test(r.details) || FULIZA_LINE.test(older.details)) continue;
       checked++;
       if (Math.abs(older.balance + r.paidIn - r.withdrawn - r.balance) > 0.5) gaps++;
     }

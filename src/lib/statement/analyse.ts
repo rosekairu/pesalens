@@ -7,7 +7,7 @@ const DAY = 86_400_000;
 
 export type Payee = { key: string; name: string; number?: string; account?: string; kind: Txn["kind"]; category: string; total: number; count: number };
 export type Recurring = { key: string; name: string; number?: string; amount: number; rhythm: "monthly" | "every-few-months"; day?: number; count: number };
-export type Person = { key: string; name: string; number: string; total: number; count: number; fees: number };
+export type Person = { key: string; name: string; number?: string; total: number; count: number; fees: number };
 export type Month = { key: string; label: string; in: number; out: number };
 
 export type Report = {
@@ -15,8 +15,12 @@ export type Report = {
   count: number;
   fees: { total: number; byType: Record<FeeType, number>; fuliza: number; fulizaEstimated: boolean };
   fuliza: { borrowed: number; charges: number; times: number; daysOverdrawn: number; lateMonthShare: number } | null;
+  /** Totals as the statement counts them: everything paid in and everything withdrawn. */
   moneyIn: number;
   moneyOut: number;
+  /** The Fuliza parts of those totals. */
+  fulizaIn: number;
+  fulizaOut: number;
   months: Month[];
   payees: Payee[];
   recurring: Recurring[];
@@ -112,19 +116,21 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null): R
 
   const feeTotal = Object.values(byType).reduce((a, b) => a + b, 0) + fulizaCharges;
 
-  // Money in and out. Moving money to your own savings, Fuliza borrowing and repaying,
-  // and reversals are left out so they don't count twice.
+  // Money in and out, counted the way the statement counts them, so the totals match it.
+  // The Fuliza parts are reported separately so people can see how much was borrowing.
   const isIn = (t: Txn) => t.paidIn > 0 && ["received", "business-in", "deposit", "other"].includes(t.kind);
-  const isOut = (t: Txn) => t.withdrawn > 0 && !["fuliza-repay", "savings-in", "reversal"].includes(t.kind);
   const monthMap = new Map<string, Month>();
   for (let t = Date.UTC(new Date(start).getUTCFullYear(), new Date(start).getUTCMonth(), 1); t <= end; t = Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth() + 1, 1)) {
     monthMap.set(monthKey(t), { key: monthKey(t), label: MONTHS[new Date(t).getUTCMonth()], in: 0, out: 0 });
   }
-  let moneyIn = 0, moneyOut = 0;
+  let moneyIn = 0, moneyOut = 0, fulizaIn = 0, fulizaOut = 0;
   for (const t of txns) {
     const m = monthMap.get(monthKey(t.t));
-    if (isIn(t)) { moneyIn += t.paidIn; if (m) m.in += t.paidIn; }
-    if (isOut(t)) { moneyOut += t.withdrawn; if (m) m.out += t.withdrawn; }
+    moneyIn += t.paidIn;
+    moneyOut += t.withdrawn;
+    if (m) { m.in += t.paidIn; m.out += t.withdrawn; }
+    if (t.kind === "fuliza-draw") fulizaIn += t.paidIn;
+    if (t.kind === "fuliza-repay") fulizaOut += t.withdrawn;
   }
 
   // Payees: every party money went to, with a default category.
@@ -146,7 +152,8 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null): R
     const typical = median(ts.map((t) => t.withdrawn));
     const similar = ts.filter((t) => Math.abs(t.withdrawn - typical) <= typical * 0.15);
     const monthsSeen = new Set(similar.map((t) => monthKey(t.t)));
-    const perMonth = similar.length / Math.max(1, monthsSeen.size);
+    // Count every payment to them, not just the similar ones, so someone paid weekly isn't called monthly.
+    const perMonth = ts.length / Math.max(1, new Set(ts.map((t) => monthKey(t.t))).size);
     if (monthsSeen.size >= Math.min(3, months) && monthsSeen.size >= months * 0.6 && perMonth <= 1.5) {
       recurring.push({ key: p.key, name: p.name, number: p.number, amount: typical, rhythm: "monthly", day: Math.round(median(similar.map((t) => new Date(t.t).getUTCDate()))), count: similar.length });
     } else if (similar.length >= 3 && typical >= 1000) {
@@ -170,9 +177,9 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null): R
 
   // People you send to most, with what it cost to send to them.
   const people: Person[] = payees
-    .filter((p) => p.kind === "send" && p.number)
+    .filter((p) => p.kind === "send")
     .map((p) => ({
-      key: p.key, name: p.name, number: p.number!, total: p.total, count: p.count,
+      key: p.key, name: p.name, number: p.number, total: p.total, count: p.count,
       fees: txns.filter((t) => t.key === p.key).reduce((s, t) => s + (chargeByReceipt.get(t.receipt) ?? 0), 0),
     }))
     .sort((a, b) => b.total - a.total);
@@ -199,6 +206,8 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null): R
     fuliza,
     moneyIn,
     moneyOut,
+    fulizaIn,
+    fulizaOut,
     months: [...monthMap.values()],
     payees,
     recurring: recurring.slice(0, 6),

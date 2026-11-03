@@ -88,3 +88,28 @@ describe("diagnostics masking", () => {
     expect(maskDetails("Merchant Payment Fuliza M-Pesa to7623398 - Muturi Shop")).toBe("Merchant Payment Fuliza M-Pesa to9999999 - NAME");
   });
 });
+
+describe("money in and out", () => {
+  it("match the statement's own totals, with the Fuliza parts shown", async () => {
+    const { extractText } = await import("../src/lib/statement/extract");
+    const { readRows } = await import("../src/lib/statement/layout");
+    const rows = readRows(await extractText(lib, bytes("public/sample-statement.pdf")));
+    const r = await readStatement(lib, bytes("public/sample-statement.pdf"));
+    expect(r.moneyIn).toBeCloseTo(rows.reduce((s, x) => s + x.paidIn, 0), 2);
+    expect(r.moneyOut).toBeCloseTo(rows.reduce((s, x) => s + x.withdrawn, 0), 2);
+    expect(r.fulizaIn).toBeCloseTo(r.fuliza!.borrowed, 2);
+    expect(r.fulizaOut).toBeGreaterThan(0);
+    expect(r.months.reduce((s, m) => s + m.in, 0)).toBeCloseTo(r.moneyIn, 2);
+  });
+});
+
+describe("statements without phone numbers", () => {
+  it("groups the people you send to by name", async () => {
+    const r = await readStatement(lib, bytes("tests/fixtures/nophone.pdf"));
+    expect(r.people.length).toBeGreaterThan(5);
+    expect(r.people.every((p) => p.number === undefined)).toBe(true);
+    expect(r.people.map((p) => p.name)).toContain("JOHN KAMAU");
+    expect(r.regulars?.people.length).toBe(3);
+    expect(r.diagnostics?.unknown).toHaveLength(0);
+  });
+});

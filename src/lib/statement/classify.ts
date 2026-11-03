@@ -5,7 +5,16 @@ const FULIZA = /Fuliza/i;
 const PHONE = /((?:\+?254|0)\d{2,3}\*{2,}\d{3}|(?:\+?254|0)\d{9})/;
 
 function clean(s: string) {
-  return s.replace(/\s+/g, " ").trim();
+  // The page footer's disclaimer can end up glued to the last line on a page.
+  return s.replace(/\s*Disclaimer:.*$/i, "").replace(/\s+/g, " ").trim();
+}
+
+/** Some statements leave the number out ("Customer Transfer to - NAME"), so fall back to the name. */
+function party(prefix: string, rawNumber: string, rawName: string) {
+  const name = clean(rawName);
+  const found = PHONE.exec(rawNumber)?.[1];
+  const number = found ? phoneKey(found) : undefined;
+  return { key: number ? `${prefix}:${number}` : `${prefix}-name:${name.toUpperCase()}`, number, name };
 }
 
 /** Normalises a printed phone so 0712***678 and 254712***678 match. */
@@ -34,13 +43,12 @@ export function classify(details: string, paidIn: number, withdrawn: number): Cl
   if (/Charge$/i.test(d) || /^(Customer Transfer of Funds|Pay Bill|Withdrawal|Pay Merchant|Merchant Payment)\s*Charge/i.test(d)) return { kind: "charge", feeType: chargeType(d) };
   if (/Reversal/i.test(d)) return { kind: "reversal" };
 
-  if ((m = /^Customer\s*(?:Transfer|Send\s*Money)(?:\s*Fuliza\s*M-?\s*Pesa)?\s*to\s*(.+?)\s*-\s*(.*)$/i.exec(d))) {
-    const num = PHONE.exec(m[1])?.[1] ?? m[1].trim();
-    return { kind: "send", key: "phone:" + phoneKey(num), number: phoneKey(num), name: clean(m[2]), viaFuliza };
+  // Pochi la Biashara appears as "Small Business" or "Micro SME Business".
+  if ((m = /(?:Small|Micro\s*SME)\s*Business(?:\s*with\s*Fuliza\s*M-?\s*Pesa)?\s*to\s*(.*?)\s*-\s*(.*)$/i.exec(d))) {
+    return { kind: "pochi", ...party("pochi", m[1], m[2]), viaFuliza };
   }
-  if ((m = /Small\s*Business\s*to\s*(.+?)\s*-\s*(.*)$/i.exec(d))) {
-    const num = PHONE.exec(m[1])?.[1] ?? m[1].trim();
-    return { kind: "pochi", key: "pochi:" + phoneKey(num), number: phoneKey(num), name: clean(m[2]), viaFuliza };
+  if ((m = /^Customer\s*(?:Transfer|Send\s*Money)(?:\s*Fuliza\s*M-?\s*Pesa)?\s*to\s*(.*?)\s*-\s*(.*)$/i.exec(d))) {
+    return { kind: "send", ...party("phone", m[1], m[2]), viaFuliza };
   }
   if ((m = /^Pay\s*Bill(?:\s*Online)?(?:\s*Fuliza\s*M-?\s*Pesa)?\s*to\s*(\d+)\s*-\s*(.*?)\s*\bAcc\.\s*(.*)$/i.exec(d))) {
     const account = clean(m[3]).replace(/\s*incl of Ksh.*$/i, "");
@@ -62,11 +70,10 @@ export function classify(details: string, paidIn: number, withdrawn: number): Cl
   if (/M-?\s*Shwari|KCB\s*M-?\s*PESA|Lock\s*Savings|Ziidi/i.test(d)) {
     return { kind: withdrawn > 0 ? "savings-in" : "savings-out", key: "savings:" + d.split(/\s/)[0], name: d };
   }
-  if ((m = /^Funds\s*received\s*from\s*(.+?)\s*-\s*(.*)$/i.exec(d))) {
-    const num = PHONE.exec(m[1])?.[1] ?? m[1].trim();
-    return { kind: "received", key: "phone:" + phoneKey(num), number: phoneKey(num), name: clean(m[2]) };
+  if ((m = /^Funds\s*received\s*from\s*(.*?)\s*-\s*(.*)$/i.exec(d))) {
+    return { kind: "received", ...party("phone", m[1], m[2]) };
   }
-  if ((m = /^(?:Business|Promotion|Salary|B2C|Merchant\s*Customer)\s*Payment\s*from\s*(\d+)\s*-\s*(.*?)(?:\s*via\s*API.*)?$/i.exec(d))) {
+  if ((m = /^(?:Transfer\s*from\s*Bank|(?:Business|Promotion|Salary|B2C|Merchant\s*Customer)\s*Payment\s*from)\s*(\d+)\s*-\s*(.*?)(?:\s*via\s*API.*)?$/i.exec(d))) {
     return { kind: "business-in", key: "org:" + m[1], number: m[1], name: clean(m[2]).replace(/\.$/, "") };
   }
   if (/Deposit\s*of\s*Funds\s*at\s*Agent/i.test(d)) return { kind: "deposit", name: "Cash deposits" };

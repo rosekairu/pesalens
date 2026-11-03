@@ -101,7 +101,7 @@ function ReportView({ r, sample }: { r: Report; sample: boolean }) {
           <h2>Regular payments</h2>
           {r.recurring.length ? r.recurring.map((x) => (
             <div className="list-row" key={x.key}>
-              <span><b>{payeeLabel(x.name, x.number, x.key)}</b><br /><span className="small muted">{x.rhythm === "monthly" ? `Every month, around the ${ordinal(x.day ?? 1)}` : "Every few months"}</span></span>
+              <span><b>{x.key.startsWith("phone") || x.key.startsWith("pochi") ? maskName(x.name) : payeeLabel(x.name, x.number, x.key)}</b><br /><span className="small muted">{x.rhythm === "monthly" ? `Every month, around the ${ordinal(x.day ?? 1)}` : "Every few months"}</span></span>
               <span className="amt">{ksh(x.amount)}</span>
             </div>
           )) : <p className="muted">No payments repeat often enough to call regular.</p>}
@@ -121,7 +121,7 @@ function payeeLabel(name: string, number?: string, key?: string) {
     return `${n}, Paybill ${number}${acc ? `, Acc. ${acc}` : ""}`;
   }
   if (key?.startsWith("till:")) return `${n}, Till ${number}`;
-  if (key?.startsWith("phone:")) return `${n}, ${number}`;
+  if (key?.startsWith("phone:") && number) return `${n}, ${number}`;
   return n;
 }
 
@@ -175,8 +175,8 @@ function Months({ r }: { r: Report }) {
         ))}
       </div>
       <div className="key">
-        <span><i style={{ background: "var(--in)" }} />Money in {ksh(r.moneyIn)}</span>
-        <span><i style={{ background: "var(--ink)" }} />Money out {ksh(r.moneyOut)}</span>
+        <span><i style={{ background: "var(--in)" }} /><span className="plain"><b>Money in {ksh(r.moneyIn)}</b>{r.fulizaIn > 0 && <>, of which {ksh(r.fulizaIn)} was Fuliza</>}</span></span>
+        <span><i style={{ background: "var(--ink)" }} /><span className="plain"><b>Money out {ksh(r.moneyOut)}</b>{r.fulizaOut > 0 && <>, of which {ksh(r.fulizaOut)} was repaying Fuliza</>}</span></span>
         {r.income && <span className="muted">Regular income: {ksh(r.income.amount)} around the {ordinal(r.income.day)}</span>}
       </div>
     </div>
@@ -241,7 +241,7 @@ function People({ r }: { r: Report }) {
       <h2>People you send to most</h2>
       {top.length ? top.map((p) => (
         <div className="list-row" key={p.key}>
-          <span>{show ? titleCase(p.name) : maskName(p.name)}<br /><span className="small muted">{p.number}, {num(p.count)} sends</span></span>
+          <span>{show ? titleCase(p.name) : maskName(p.name)}<br /><span className="small muted">{p.number ? `${p.number}, ` : ""}{num(p.count)} sends</span></span>
           <span className="amt">{ksh(p.total)}</span>
         </div>
       )) : <p className="muted">You didn&apos;t send money to anyone in this statement.</p>}

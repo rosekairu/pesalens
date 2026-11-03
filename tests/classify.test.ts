@@ -58,3 +58,28 @@ describe("names", () => {
   });
   it("masks names to initials", () => expect(maskName("JOHN KAMAU")).toBe("J*** K***"));
 });
+
+// Line shapes from a real 2026 statement (names and numbers made up).
+describe("2026 statement shapes", () => {
+  const cases: [string, string, Record<string, unknown>?][] = [
+    ["Customer Transfer Fuliza MPesa to - JOHN KAMAU", "send", { name: "JOHN KAMAU", key: "phone-name:JOHN KAMAU", viaFuliza: true }],
+    ["Customer Transfer to - MARY WANJIKU", "send", { name: "MARY WANJIKU", number: undefined }],
+    ["Funds received from - PETER OTIENO", "received", { name: "PETER OTIENO" }],
+    ["Customer Send Money to Micro SME Business with Fuliza MPesa to - MAMA SHOP", "pochi", { name: "MAMA SHOP", viaFuliza: true }],
+    ["Transfer from Bank 123456 - EQUITY BANK", "business-in", { name: "EQUITY BANK" }],
+    ["Customer Bundle Purchase with Fuliza to 1234567SAFARICOM DATA BUNDLES by - JOHN", "airtime"],
+    ["Recharge for Customer With Fuliza to 1234567SAFARICOM DATA BUNDLES by - JOHN", "airtime"],
+    ["Airtime Purchase For Other with Fuliza", "airtime"],
+    ["Pay Merchant Charge", "charge", { feeType: "till" }],
+    ["Pay Bill Charge Disclaimer: Any personal information shared with you should be handled in accordance with the Data Protection Act.", "charge", { feeType: "paybill" }],
+    ["OverDraft of Credit Party Disclaimer: Any personal information shared with you should be handled in accordance with the Data Protection Act.", "fuliza-draw"],
+    ["Pay Utility Reversal by Absa Bank Kenya PLC - JOHN", "reversal"],
+  ];
+  for (const [text, kind, extra] of cases) {
+    it(text, () => {
+      const c = classify(text, 0, 100);
+      expect(c.kind).toBe(kind);
+      if (extra) expect(c).toMatchObject(extra);
+    });
+  }
+});

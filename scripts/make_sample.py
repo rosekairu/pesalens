@@ -17,6 +17,7 @@ NEG = "--negative" in args          # older statements print withdrawals as nega
 CENTERED = "--centered" in args     # headings centred over their columns
 BLANK = "--blank" in args           # empty amount cells instead of 0.00
 ONELINE = "--oneline-time" in args  # date and time on one line
+NOPHONE = "--nophone" in args       # 2026 statements leave the number out: "Customer Transfer to - NAME"
 seed = int(args[args.index("--seed") + 1]) if "--seed" in args else 7
 rnd = random.Random(seed)
 
@@ -105,6 +106,9 @@ for t, kind, det, amt, _ in events:
         bal -= fee; rows.append((r, t, {"send": "Customer Transfer of Funds Charge", "withdraw": "Withdrawal Charge"}[kind], 0, fee, bal))
 
 rows.reverse()   # statements list the newest first
+if NOPHONE:
+    import re
+    rows = [(r, t, re.sub(r"(Customer Transfer(?: Fuliza M-Pesa)? to|Funds received from) \S+ -", r"\1 -", d).replace("Fuliza M-Pesa to -", "Fuliza MPesa to -"), pi, wd, b) for r, t, d, pi, wd, b in rows]
 
 # ---------- PDF ----------
 W, H = A4
