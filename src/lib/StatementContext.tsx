@@ -1,12 +1,15 @@
 "use client";
 import { createContext, useCallback, useContext, useState } from "react";
 import type { Report } from "./statement/analyse";
+import type { RawRow } from "./statement/types";
 import { StatementError } from "./statement/types";
 import type { PdfJs } from "./statement/extract";
 
 type Source = "sample" | "own";
 type Ctx = {
   report: Report | null;
+  rows: RawRow[] | null;
+  period: [number, number] | null;
   source: Source | null;
   read: (bytes: Uint8Array, code: string | undefined, source: Source, onPage?: (done: number, total: number) => void) => Promise<Report>;
   close: () => void;
@@ -31,21 +34,27 @@ function loadPdfJs(): Promise<PdfJs> {
 export function StatementProvider({ children }: { children: React.ReactNode }) {
   const [report, setReport] = useState<Report | null>(null);
   const [source, setSource] = useState<Source | null>(null);
+  const [rows, setRows] = useState<RawRow[] | null>(null);
+  const [period, setPeriod] = useState<[number, number] | null>(null);
 
   const read = useCallback<Ctx["read"]>(async (bytes, code, src, onPage) => {
-    const [pdfjs, { readStatement }] = await Promise.all([loadPdfJs(), import("./statement/read")]);
-    const r = await readStatement(pdfjs, bytes, code, onPage);
-    setReport(r);
+    const [pdfjs, { openStatement }] = await Promise.all([loadPdfJs(), import("./statement/read")]);
+    const st = await openStatement(pdfjs, bytes, code, onPage);
+    setReport(st.report);
+    setRows(st.rows);
+    setPeriod(st.period);
     setSource(src);
-    return r;
+    return st.report;
   }, []);
 
   const close = useCallback(() => {
     setReport(null);
+    setRows(null);
+    setPeriod(null);
     setSource(null);
   }, []);
 
-  return <StatementCtx.Provider value={{ report, source, read, close }}>{children}</StatementCtx.Provider>;
+  return <StatementCtx.Provider value={{ report, rows, period, source, read, close }}>{children}</StatementCtx.Provider>;
 }
 
 export function useStatement() {

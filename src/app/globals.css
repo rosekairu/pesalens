@@ -200,3 +200,23 @@ button, input { font: inherit; color: inherit; }
 .steps li > div { display: flex; flex-direction: column; }
 .diag textarea { display: block; width: 100%; margin-top: 12px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--paper); border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--ink); resize: vertical; }
 .key span.plain { display: inline; }
+
+/* Month picker */
+.month-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.chip { flex: none; height: 40px; padding: 0 16px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); font-weight: 600; font-size: 15px; cursor: pointer; }
+.chip:hover { border-color: var(--ink); }
+.chip[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.results .month-picker + h1 { margin-top: 22px; }
+.vs { margin-top: 12px; font-size: 19px; color: var(--muted); }
+.bars .bar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; background: none; border: 0; padding: 6px 0; border-radius: 8px; cursor: pointer; font: inherit; color: inherit; }
+.bars .bar:hover { background: var(--bg-deep); }
+.bars .bar .pair { display: flex; align-items: flex-end; gap: 3px; height: 150px; }
+.bars.picking .bar:not([aria-pressed="true"]) .pair { opacity: 0.28; }
+.bars .bar[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
+.bars .bar[aria-pressed="true"] .m { color: var(--ink); font-weight: 700; }
+@media (max-width: 900px) {
+  .month-picker { flex-wrap: nowrap; overflow-x: auto; margin-right: calc(-1 * var(--pad)); padding-right: var(--pad); scrollbar-width: none; }
+  .month-picker::-webkit-scrollbar { display: none; }
+  .chip { height: 38px; padding: 0 13px; font-size: 14px; }
+  .vs { font-size: 16px; margin-top: 8px; }
+}

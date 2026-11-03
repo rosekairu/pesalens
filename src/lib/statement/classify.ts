@@ -2,7 +2,7 @@ import type { Classified, FeeType } from "./types";
 
 // Statements sometimes lose the space at a line wrap ("Lipa naKCB", "to6120440"), so patterns allow optional spaces.
 const FULIZA = /Fuliza/i;
-const PHONE = /((?:\+?254|0)\d{2,3}\*{2,}\d{3}|(?:\+?254|0)\d{9})/;
+const PHONE = /((?:\+?254|0)\d[\d*]{5,11}\d)/;
 
 function clean(s: string) {
   // The page footer's disclaimer can end up glued to the last line on a page.
@@ -11,8 +11,11 @@ function clean(s: string) {
 
 /** Some statements leave the number out ("Customer Transfer to - NAME"), so fall back to the name. */
 function party(prefix: string, rawNumber: string, rawName: string) {
-  const name = clean(rawName);
-  const found = PHONE.exec(rawNumber)?.[1];
+  let name = clean(rawName);
+  let found = PHONE.exec(rawNumber)?.[1];
+  // Some statements put the number after the dash: "to - 2547******78 JOHN KAMAU".
+  const lead = /^((?:\+?254|0)\d[\d*]{5,11}\d)\s+(.*)$/.exec(name);
+  if (lead) { found ??= lead[1]; name = lead[2]; }
   const number = found ? phoneKey(found) : undefined;
   return { key: number ? `${prefix}:${number}` : `${prefix}-name:${name.toUpperCase()}`, number, name };
 }

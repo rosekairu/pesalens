@@ -50,7 +50,8 @@ describe("reading a statement", () => {
 
 import { balanceGaps } from "../src/lib/statement/layout";
 describe("balance check", () => {
-  const row = (paidIn: number, withdrawn: number, balance: number) => ({ receipt: "X", t: 0, details: "", status: "COMPLETED", paidIn, withdrawn, balance });
+  let n = 0;
+  const row = (paidIn: number, withdrawn: number, balance: number) => ({ receipt: `R${n}`, t: -(n++) * 60000, details: "", status: "COMPLETED", paidIn, withdrawn, balance });
   it("is zero when every balance follows from the line before", () => {
     expect(balanceGaps([row(0, 100, 900), row(1000, 0, 1000), row(0, 0, 0)])).toBe(0);
   });
@@ -111,5 +112,36 @@ describe("statements without phone numbers", () => {
     expect(r.people.map((p) => p.name)).toContain("JOHN KAMAU");
     expect(r.regulars?.people.length).toBe(3);
     expect(r.diagnostics?.unknown).toHaveLength(0);
+  });
+});
+
+describe("balance check groups", () => {
+  const row = (receipt: string, t: number, paidIn: number, withdrawn: number, balance: number, details = "") => ({ receipt, t, details, status: "COMPLETED", paidIn, withdrawn, balance });
+  it("accepts a Fuliza payment printed in any order with odd in-between balances", () => {
+    // Newest first. Balance 100, buy 500 with 400 of Fuliza: the statement shows 0.00 on both lines.
+    const rows = [
+      row("B", 3000, 0, 500, 0, "Merchant Payment Fuliza M-Pesa to 1234567 - SHOP"),
+      row("B", 3000, 400, 0, 0, "OverDraft of Credit Party"),
+      row("A", 1000, 100, 0, 100, "Funds received from - 0712***678 JOHN"),
+      row("Z", 0, 0, 0, 0, "start"),
+    ];
+    expect(balanceGaps(rows)).toBe(0);
+  });
+});
+
+describe("one month at a time", () => {
+  it("months add up to the whole statement, Fuliza charges included", async () => {
+    const { openStatement } = await import("../src/lib/statement/read");
+    const { analyse, monthWindow } = await import("../src/lib/statement/analyse");
+    for (const f of ["public/sample-statement.pdf", "tests/fixtures/nophone.pdf"]) {
+      const st = await openStatement(lib, bytes(f));
+      const parts = st.report.months.map((m) => analyse(st.rows, st.period, monthWindow(m.key)));
+      const sum = (k: (r: typeof st.report) => number) => parts.reduce((s, r) => s + k(r), 0);
+      expect(sum((r) => r.fees.total)).toBeCloseTo(st.report.fees.total, 1);
+      expect(sum((r) => r.fees.fuliza)).toBeCloseTo(st.report.fees.fuliza, 1);
+      expect(sum((r) => r.moneyIn)).toBeCloseTo(st.report.moneyIn, 1);
+      expect(sum((r) => r.fuliza?.borrowed ?? 0)).toBeCloseTo(st.report.fuliza!.borrowed, 1);
+      expect(parts[3].period.months).toBe(1);
+    }
   });
 });

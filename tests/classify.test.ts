@@ -83,3 +83,10 @@ describe("2026 statement shapes", () => {
     });
   }
 });
+
+describe("number after the dash", () => {
+  it("splits it from the name", () => {
+    expect(classify("Customer Transfer Fuliza MPesa to - 2547******78 LUCY MWANGI", 0, 100)).toMatchObject({ kind: "send", number: "07******78", name: "LUCY MWANGI", key: "phone:07******78" });
+    expect(classify("Funds received from - 0712***678 PETER OTIENO", 100, 0)).toMatchObject({ kind: "received", number: "0712***678", name: "PETER OTIENO" });
+  });
+});

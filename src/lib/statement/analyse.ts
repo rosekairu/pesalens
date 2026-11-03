@@ -53,12 +53,23 @@ export function toTxns(rows: RawRow[]): Txn[] {
     .sort((a, b) => a.t - b.t);
 }
 
-/** Builds everything the results page shows from the statement rows. */
-export function analyse(rows: RawRow[], periodHint?: [number, number] | null): Report {
-  const txns = toTxns(rows);
-  if (!txns.length) throw new Error("No transactions");
-  const start = periodHint?.[0] ?? txns[0].t;
-  const end = periodHint?.[1] ?? txns[txns.length - 1].t;
+/** The first and last moment of a month key such as "2026-04". */
+export function monthWindow(key: string): [number, number] {
+  const [y, m] = key.split("-").map(Number);
+  return [Date.UTC(y, m - 1, 1), Date.UTC(y, m, 1) - 1000];
+}
+
+/**
+ * Builds everything the results page shows from the statement rows.
+ * With a window (one month), every figure covers just that window. Fuliza charges are still
+ * worked out across the whole statement, then counted in the month each repayment was made.
+ */
+export function analyse(rows: RawRow[], periodHint?: [number, number] | null, window?: [number, number]): Report {
+  const allTxns = toTxns(rows);
+  if (!allTxns.length) throw new Error("No transactions");
+  const txns = window ? allTxns.filter((t) => t.t >= window[0] && t.t <= window[1]) : allTxns;
+  const start = window ? Math.max(window[0], periodHint?.[0] ?? allTxns[0].t) : periodHint?.[0] ?? allTxns[0].t;
+  const end = window ? Math.min(window[1], periodHint?.[1] ?? allTxns[allTxns.length - 1].t) : periodHint?.[1] ?? allTxns[allTxns.length - 1].t;
   const months = Math.max(1, Math.round((end - start) / (30.44 * DAY)));
   const weeks = Math.max(1, (end - start) / (7 * DAY));
 
@@ -79,39 +90,52 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null): R
   }
 
   // Fuliza: the statement shows what was borrowed and what was repaid. Explicit fee rows are used when
-  // present; otherwise the charges are what was repaid beyond what was borrowed.
-  const draws = txns.filter((t) => t.kind === "fuliza-draw");
-  const repays = txns.filter((t) => t.kind === "fuliza-repay");
+  // present. Otherwise each repayment is matched to the oldest borrowing still owed, and whatever it
+  // pays beyond that borrowing is the charge. Repayments before the first borrowing in the statement
+  // are for a loan taken before it started, so they aren't counted.
+  const inWindow = (t: Txn) => txns.includes(t);
+  const allDraws = allTxns.filter((t) => t.kind === "fuliza-draw");
+  const allRepays = allTxns.filter((t) => t.kind === "fuliza-repay");
+  const draws = allDraws.filter(inWindow);
+  const repays = allRepays.filter(inWindow);
   const feeRows = txns.filter((t) => t.kind === "fuliza-fee");
   let fuliza: Report["fuliza"] = null;
   let fulizaCharges = 0;
   let fulizaEstimated = false;
-  if (draws.length || repays.length || feeRows.length) {
+  if (allDraws.length || allRepays.length || allTxns.some((t) => t.kind === "fuliza-fee")) {
     const borrowed = draws.reduce((s, t) => s + t.paidIn, 0);
-    if (feeRows.length) {
+    if (allTxns.some((t) => t.kind === "fuliza-fee")) {
       fulizaCharges = feeRows.reduce((s, t) => s + t.withdrawn, 0);
-    } else if (draws.length) {
-      // Only count repayments after the first draw, and draws before the last repayment,
-      // so a loan carried in from before the statement (or still open at the end) doesn't skew it.
-      const first = draws[0].t, last = repays.length ? repays[repays.length - 1].t : 0;
-      const repaid = repays.filter((t) => t.t >= first).reduce((s, t) => s + t.withdrawn, 0);
-      const settled = draws.filter((t) => t.t <= last).reduce((s, t) => s + t.paidIn, 0);
-      fulizaCharges = Math.max(0, Math.round((repaid - settled) * 100) / 100);
+    } else if (allDraws.length) {
+      const chargeOf = new Map<Txn, number>();
+      let owedPrincipal = 0;
+      const firstDraw = allDraws[0].t;
+      for (const t of allTxns) {
+        if (t.kind === "fuliza-draw") owedPrincipal += t.paidIn;
+        if (t.kind !== "fuliza-repay") continue;
+        if (t.t < firstDraw) { chargeOf.set(t, 0); continue; }
+        const principal = Math.min(owedPrincipal, t.withdrawn);
+        owedPrincipal -= principal;
+        chargeOf.set(t, t.withdrawn - principal);
+      }
+      fulizaCharges = Math.round(repays.reduce((s, t) => s + (chargeOf.get(t) ?? 0), 0) * 100) / 100;
       fulizaEstimated = true;
     }
-    // Days overdrawn: days that end with Fuliza still owed.
+    // Days overdrawn: days in the period that end with Fuliza still owed (tracked across the whole statement).
     let owed = 0, days = 0;
-    const events = [...draws.map((t) => ({ t: t.t, a: t.paidIn })), ...repays.map((t) => ({ t: t.t, a: -t.withdrawn }))].sort((a, b) => a.t - b.t);
+    const events = [...allDraws.map((t) => ({ t: t.t, a: t.paidIn })), ...allRepays.map((t) => ({ t: t.t, a: -t.withdrawn }))].sort((a, b) => a.t - b.t);
     if (events.length) {
       let i = 0;
       for (let day = Math.floor(events[0].t / DAY); day <= Math.floor(end / DAY); day++) {
         while (i < events.length && Math.floor(events[i].t / DAY) <= day) owed = Math.max(0, owed + events[i++].a);
-        if (owed > 0.5) days++;
+        if (owed > 0.5 && day >= Math.floor(start / DAY)) days++;
       }
     }
     const drawDays = new Set(draws.map((t) => Math.floor(t.t / DAY)));
     const late = draws.filter((t) => new Date(t.t).getUTCDate() >= 22).length;
-    fuliza = { borrowed, charges: fulizaCharges, times: drawDays.size, daysOverdrawn: days, lateMonthShare: draws.length ? late / draws.length : 0 };
+    if (!window || draws.length || repays.length || fulizaCharges > 0) {
+      fuliza = { borrowed, charges: fulizaCharges, times: drawDays.size, daysOverdrawn: days, lateMonthShare: draws.length ? late / draws.length : 0 };
+    }
   }
 
   const feeTotal = Object.values(byType).reduce((a, b) => a + b, 0) + fulizaCharges;

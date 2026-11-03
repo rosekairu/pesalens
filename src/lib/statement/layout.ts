@@ -198,23 +198,40 @@ export function readRows(pages: TextBit[][]): RawRow[] {
  * Share of rows whose balance doesn't follow from the row before it. A high share means
  * rows were missed or misread, so the results would be wrong. Rows are newest first.
  */
-const FULIZA_LINE = /OverDraft|OD\s*Loan|Fuliza/i;
-
+/**
+ * Share of transactions whose balance doesn't follow from the one before. A payment, its
+ * charge and any Fuliza line share a receipt number and time, and statements print them in
+ * varying order with in-between balances that don't chain, so each such group is checked as
+ * a whole: the balance before, plus what came in, minus what went out, must equal one of the
+ * balances printed in the group. A high share means lines were missed or misread.
+ */
 export function balanceGaps(rows: RawRow[]): number {
-  // Statements are usually newest first, but check both orders and keep the better fit.
-  const gapRate = (list: RawRow[]) => {
+  const rate = (chrono: RawRow[]) => {
+    const groups: RawRow[][] = [];
+    for (const r of chrono) {
+      const g = groups[groups.length - 1];
+      if (g && (g[0].receipt === r.receipt || Math.abs(g[g.length - 1].t - r.t) <= 2000)) g.push(r);
+      else groups.push([r]);
+    }
     let checked = 0, gaps = 0;
-    for (let i = 0; i < list.length - 1; i++) {
-      const r = list[i], older = list[i + 1];
-      if (r.balance === null || older.balance === null) continue;
-      // Statements print the running balance differently on Fuliza lines, so they can't be checked this way.
-      if (FULIZA_LINE.test(r.details) || FULIZA_LINE.test(older.details)) continue;
-      checked++;
-      if (Math.abs(older.balance + r.paidIn - r.withdrawn - r.balance) > 0.5) gaps++;
+    let before: number | null = null;
+    for (const g of groups) {
+      const printed = g.map((r) => r.balance).filter((b): b is number => b !== null);
+      if (!printed.length) continue;
+      const net = g.reduce((s, r) => s + r.paidIn - r.withdrawn, 0);
+      if (before !== null) {
+        checked++;
+        const expected: number = before + net;
+        if (printed.some((b) => Math.abs(b - expected) <= 0.5)) { before = expected; continue; }
+        gaps++;
+      }
+      // Start again from the balance the statement printed last in the group.
+      before = printed[printed.length - 1];
     }
     return checked ? gaps / checked : 0;
   };
-  return Math.min(gapRate(rows), gapRate([...rows].reverse()));
+  // Rows come newest first; try both orders in case a statement lists oldest first.
+  return Math.min(rate([...rows].reverse()), rate(rows));
 }
 
 export { parseAmount };
