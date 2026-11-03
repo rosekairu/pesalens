@@ -4,7 +4,7 @@
 
 PesaLens reads your M-PESA full statement and shows what fees and Fuliza cost you, what drove them, and where the rest of your money went. The statement is read in your browser. It is never uploaded.
 
-Live: https://pesalens.vercel.app
+Live: https://pesalens-one.vercel.app
 
 ## What it shows
 

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { Logo } from "./Logo";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStatement } from "@/lib/StatementContext";
@@ -40,7 +41,7 @@ export function Results() {
   return (
     <>
       <header className="results-head">
-        <Link href="/" className="logo">pesalens</Link>
+        <Logo />
         <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
           <span className="note">Read on this device. Nothing uploaded.</span>
           <button className="btn btn-sm" onClick={() => { close(); router.push("/"); }}>Close statement</button>
