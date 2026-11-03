@@ -31,7 +31,7 @@ export function Footer() {
   return (
     <footer className="site-footer">
       <span>Built by <a href="https://rosekairu.com" rel="noopener">Rose Kairu</a>. Not affiliated with Safaricom.</span>
-      <a href="https://github.com/rosekairu/pesalens" rel="noopener">Source code</a>
+      <span>© {new Date().getFullYear()}</span>
     </footer>
   );
 }
