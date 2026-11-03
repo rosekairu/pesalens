@@ -23,5 +23,10 @@ export const maskName = (name: string) =>
 
 /** "JOHN KAMAU" → "John Kamau" */
 const KEEP = new Set(["KCB", "KPLC", "NCBA", "KRA", "NHIF", "SHA", "NSSF", "ABSA", "DTB", "I&M", "CBA", "NBK", "HELB", "SACCO", "ATM", "TV", "M-PESA"]);
+const SMALL = new Set(["and", "of", "for", "the", "to", "in", "on", "at", "by", "with"]);
 export const titleCase = (s: string) =>
-  s.split(/\s+/).map((w) => (KEEP.has(w.toUpperCase()) ? w.toUpperCase() : w.toLowerCase().replace(/(^|[(-])(\p{L})/gu, (_, a, b) => a + b.toUpperCase()))).join(" ");
+  s.split(/\s+/).map((w, i) => {
+    if (KEEP.has(w.toUpperCase())) return w.toUpperCase();
+    if (i > 0 && SMALL.has(w.toLowerCase())) return w.toLowerCase();
+    return w.toLowerCase().replace(/(^|[(-])(\p{L})/gu, (_, a, b) => a + b.toUpperCase());
+  }).join(" ");

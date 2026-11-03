@@ -115,13 +115,28 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null, wi
       const chargeOf = new Map<Txn, number>();
       let owedPrincipal = 0;
       const firstDraw = allDraws[0].t;
+      // A loan taken before the statement began can still be owed at the start. Its repayment would
+      // look like a huge charge. Until the first loan is cleanly repaid (or a month has passed, by
+      // which time an older loan is due), a repayment's charge is capped at what a normal fee
+      // could be, and anything above that is treated as paying off the older loan.
+      let carriedPhase = true;
+      const phaseEnds = allTxns[0].t + 31 * DAY;
+      const feeCap = (principal: number) => Math.max(50, principal * 0.25);
       for (const t of allTxns) {
         if (t.kind === "fuliza-draw") owedPrincipal += t.paidIn;
         if (t.kind !== "fuliza-repay") continue;
         if (t.t < firstDraw) { chargeOf.set(t, 0); continue; }
         const principal = Math.min(owedPrincipal, t.withdrawn);
         owedPrincipal -= principal;
-        chargeOf.set(t, t.withdrawn - principal);
+        const excess = t.withdrawn - principal;
+        if (carriedPhase && t.t > phaseEnds) carriedPhase = false;
+        if (carriedPhase) {
+          const cap = feeCap(principal);
+          chargeOf.set(t, Math.min(excess, cap));
+          if (owedPrincipal <= 0.5 && excess <= cap) carriedPhase = false;
+        } else {
+          chargeOf.set(t, excess);
+        }
       }
       fulizaCharges = Math.round(repays.reduce((s, t) => s + (chargeOf.get(t) ?? 0), 0) * 100) / 100;
       fulizaEstimated = true;
@@ -177,7 +192,8 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null, wi
   const recurring: Recurring[] = [];
   const needMonths = Math.max(Math.min(3, months), Math.ceil(months * 0.6));
   for (const p of payees) {
-    if (p.kind === "withdraw") continue;
+    // Bills, tills, schools and services only. People are in "People you send to most".
+    if (p.kind === "withdraw" || p.kind === "send") continue;
     const ts = txns.filter((t) => t.key === p.key && t.withdrawn > 0);
     if (ts.length < 2) continue;
     const totals = new Map<string, number>();

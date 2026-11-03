@@ -1,4 +1,5 @@
 import { readFileSync } from "fs";
+import { analyse as analyseRows } from "../src/lib/statement/analyse";
 import { describe, expect, it } from "vitest";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { readStatement } from "../src/lib/statement/read";
@@ -143,5 +144,26 @@ describe("one month at a time", () => {
       expect(sum((r) => r.fuliza?.borrowed ?? 0)).toBeCloseTo(st.report.fuliza!.borrowed, 1);
       expect(parts[3].period.months).toBe(1);
     }
+  });
+});
+
+describe("Fuliza owed from before the statement", () => {
+  // eslint-disable-next-line
+  const day = 86_400_000, t0 = Date.UTC(2026, 0, 1, 9);
+  const row = (receipt: string, t: number, details: string, paidIn: number, withdrawn: number) => ({ receipt, t, details, status: "COMPLETED", paidIn, withdrawn, balance: null });
+  it("doesn't count repaying an older loan as a charge", () => {
+    const rows = [
+      row("A1", t0, "OverDraft of Credit Party", 100, 0),
+      row("A2", t0 + 1000, "Merchant Payment Fuliza M-Pesa to 1234567 - SHOP", 0, 100),
+      row("A3", t0 + day, "Business Payment from 501901 - EMPLOYER", 20000, 0),
+      // Clears a 10,000 loan from December plus the 100 above.
+      row("A4", t0 + day + 1000, "OD Loan Repayment to 232323 - M-PESA Overdraw", 0, 10105),
+      row("B1", t0 + 40 * day, "OverDraft of Credit Party", 1000, 0),
+      row("B2", t0 + 45 * day, "OD Loan Repayment to 232323 - M-PESA Overdraw", 0, 1060),
+    ];
+    const r = analyseRows(rows);
+    // 25 at most for the first repayment (a normal fee on 100), then the full 60 on the second.
+    expect(r.fees.fuliza).toBeLessThanOrEqual(110);
+    expect(r.fees.fuliza).toBeGreaterThanOrEqual(60);
   });
 });

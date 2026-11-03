@@ -90,3 +90,10 @@ describe("number after the dash", () => {
     expect(classify("Funds received from - 0712***678 PETER OTIENO", 100, 0)).toMatchObject({ kind: "received", number: "0712***678", name: "PETER OTIENO" });
   });
 });
+
+describe("cleaning", () => {
+  it("drops escaped apostrophes and keeps small words lower case", () => {
+    expect(classify("Pay Bill Online to 4090345 - St. Mary\\'s Girls School Acc. 1171", 0, 100).name).toBe("St. Mary's Girls School");
+    expect(titleCase("AIRTIME AND DATA")).toBe("Airtime and Data");
+  });
+});

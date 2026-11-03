@@ -6,7 +6,8 @@ const PHONE = /((?:\+?254|0)\d[\d*]{5,11}\d)/;
 
 function clean(s: string) {
   // The page footer's disclaimer can end up glued to the last line on a page.
-  return s.replace(/\s*Disclaimer:.*$/i, "").replace(/\s+/g, " ").trim();
+  // Some statements escape apostrophes ("St. Mary\'s").
+  return s.replace(/\s*Disclaimer:.*$/i, "").replace(/\\(['"])/g, "$1").replace(/\s+/g, " ").trim();
 }
 
 /** Some statements leave the number out ("Customer Transfer to - NAME"), so fall back to the name. */
