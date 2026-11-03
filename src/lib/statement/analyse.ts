@@ -6,7 +6,12 @@ import type { Diagnostics } from "./diagnostics";
 const DAY = 86_400_000;
 
 export type Payee = { key: string; name: string; number?: string; account?: string; kind: Txn["kind"]; category: string; total: number; count: number };
-export type Recurring = { key: string; name: string; number?: string; amount: number; rhythm: "monthly" | "every-few-months"; day?: number; count: number };
+/**
+ * A payment that repeats. "monthly": about the same amount once a month. "most-months": paid in
+ * most months, any number of times and amounts (amount is the typical month's total).
+ * "every-few-months": a lump every couple of months, such as school fees (instalments count as one).
+ */
+export type Recurring = { key: string; name: string; number?: string; amount: number; rhythm: "monthly" | "most-months" | "every-few-months"; day?: number; count: number; monthsSeen: number; months: number; perMonth: number };
 export type Person = { key: string; name: string; number?: string; total: number; count: number; fees: number };
 export type Month = { key: string; label: string; in: number; out: number };
 
@@ -168,24 +173,47 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null, wi
   }
   const payees = [...payeeMap.values()].sort((a, b) => b.total - a.total);
 
-  // Regular payments: same payee, similar amount, in at least three months (or spaced a term apart).
+  // Regular payments.
   const recurring: Recurring[] = [];
+  const needMonths = Math.max(Math.min(3, months), Math.ceil(months * 0.6));
   for (const p of payees) {
-    if (p.kind === "airtime" || p.kind === "withdraw") continue;
+    if (p.kind === "withdraw") continue;
     const ts = txns.filter((t) => t.key === p.key && t.withdrawn > 0);
-    const typical = median(ts.map((t) => t.withdrawn));
-    const similar = ts.filter((t) => Math.abs(t.withdrawn - typical) <= typical * 0.15);
-    const monthsSeen = new Set(similar.map((t) => monthKey(t.t)));
-    // Count every payment to them, not just the similar ones, so someone paid weekly isn't called monthly.
-    const perMonth = ts.length / Math.max(1, new Set(ts.map((t) => monthKey(t.t))).size);
-    if (monthsSeen.size >= Math.min(3, months) && monthsSeen.size >= months * 0.6 && perMonth <= 1.5) {
-      recurring.push({ key: p.key, name: p.name, number: p.number, amount: typical, rhythm: "monthly", day: Math.round(median(similar.map((t) => new Date(t.t).getUTCDate()))), count: similar.length });
-    } else if (similar.length >= 3 && typical >= 1000) {
-      const gaps = similar.slice(1).map((t, i) => (t.t - similar[i].t) / DAY);
-      if (gaps.every((g) => g >= 55 && g <= 140)) recurring.push({ key: p.key, name: p.name, number: p.number, amount: typical, rhythm: "every-few-months", count: similar.length });
+    if (ts.length < 2) continue;
+    const totals = new Map<string, number>();
+    for (const t of ts) totals.set(monthKey(t.t), (totals.get(monthKey(t.t)) ?? 0) + t.withdrawn);
+    const monthsSeen = totals.size;
+    const base = { key: p.key, name: p.name, number: p.number, count: ts.length, monthsSeen, months };
+    if (monthsSeen >= needMonths) {
+      const typical = median(ts.map((t) => t.withdrawn));
+      const similar = ts.filter((t) => Math.abs(t.withdrawn - typical) <= typical * 0.15);
+      const perMonth = ts.length / monthsSeen;
+      if (perMonth <= 1.5 && similar.length >= ts.length * 0.7) {
+        recurring.push({ ...base, amount: typical, rhythm: "monthly", day: Math.round(median(similar.map((t) => new Date(t.t).getUTCDate()))), perMonth: typical });
+      } else {
+        const monthly = median([...totals.values()]);
+        recurring.push({ ...base, amount: monthly, rhythm: "most-months", perMonth: monthly });
+      }
+      continue;
+    }
+    // Lumps every couple of months. Payments within 30 days of each other are one lump (instalments).
+    const lumps: { t: number; total: number }[] = [];
+    for (const t of ts) {
+      const last = lumps[lumps.length - 1];
+      if (last && t.t - last.t <= 30 * DAY) last.total += t.withdrawn;
+      else lumps.push({ t: t.t, total: t.withdrawn });
+    }
+    const typicalLump = median(lumps.map((l) => l.total));
+    if (lumps.length >= 2 && typicalLump >= 1000) {
+      const gaps = lumps.slice(1).map((l, i) => (l.t - lumps[i].t) / DAY);
+      const similarLumps = lumps.filter((l) => Math.abs(l.total - typicalLump) <= typicalLump * 0.35);
+      if (gaps.every((g) => g >= 45 && g <= 150) && similarLumps.length >= lumps.length * 0.6) {
+        recurring.push({ ...base, amount: typicalLump, rhythm: "every-few-months", perMonth: (typicalLump * lumps.length) / months });
+      }
     }
   }
-  recurring.sort((a, b) => b.amount - a.amount);
+  // Biggest monthly cost first.
+  recurring.sort((a, b) => b.perMonth - a.perMonth);
 
   // Regular income: the same source paying in most months.
   let income: Report["income"] = null;
@@ -234,7 +262,7 @@ export function analyse(rows: RawRow[], periodHint?: [number, number] | null, wi
     fulizaOut,
     months: [...monthMap.values()],
     payees,
-    recurring: recurring.slice(0, 6),
+    recurring: recurring.slice(0, 8),
     income,
     people,
     regulars,

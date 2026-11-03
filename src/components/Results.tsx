@@ -119,8 +119,8 @@ function ReportView({ whole, rows, period, sample }: { whole: Report; rows: RawR
           {month && <p className="small muted" style={{ margin: "-4px 0 10px" }}>Spotting regular payments takes several months, so this always covers the whole statement.</p>}
           {whole.recurring.length ? whole.recurring.map((x) => (
             <div className="list-row" key={x.key}>
-              <span><b>{x.key.startsWith("phone") || x.key.startsWith("pochi") ? maskName(x.name) : payeeLabel(x.name, x.number, x.key)}</b><br /><span className="small muted">{x.rhythm === "monthly" ? `Every month, around the ${ordinal(x.day ?? 1)}` : "Every few months"}</span></span>
-              <span className="amt">{ksh(x.amount)}</span>
+              <span><b>{x.key.startsWith("phone") || x.key.startsWith("pochi") ? maskName(x.name) : payeeLabel(x.name, x.number, x.key)}</b><br /><span className="small muted">{x.rhythm === "monthly" ? `Every month, around the ${ordinal(x.day ?? 1)}` : x.rhythm === "most-months" ? (x.monthsSeen >= x.months ? `Every month, ${num(Math.round(x.count / x.monthsSeen))} payments a month on average` : `In ${x.monthsSeen} of ${x.months} months`) : "Every few months"}</span></span>
+              <span className="amt">{ksh(x.amount)}{x.rhythm === "most-months" && <span className="small muted" style={{ display: "block", textAlign: "right", fontWeight: 400 }}>a month</span>}</span>
             </div>
           )) : <p className="muted">No payments repeat often enough to call regular.</p>}
         </div>
